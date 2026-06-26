@@ -1,0 +1,298 @@
+
+<h2 class="sr-only">Сканер документів — розпізнавання паспортів та запис у Google Sheets</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.app{padding:1.5rem 0;max-width:680px}
+.section{margin-bottom:1.5rem}
+.label{font-size:13px;color:var(--color-text-secondary);margin-bottom:6px;display:block}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.drop-zone{border:1.5px dashed var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:2.5rem 1rem;text-align:center;cursor:pointer;transition:background 0.15s;background:var(--color-background-secondary)}
+.drop-zone.drag-over{background:var(--color-background-info);border-color:var(--color-border-info)}
+.drop-zone i{font-size:32px;color:var(--color-text-secondary);display:block;margin-bottom:8px}
+.drop-zone p{font-size:14px;color:var(--color-text-secondary)}
+.drop-zone small{font-size:12px;color:var(--color-text-tertiary)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-primary);font-size:14px;cursor:pointer;font-family:var(--font-sans)}
+.btn:hover{background:var(--color-background-secondary)}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.btn-primary{background:var(--color-text-primary);color:var(--color-background-primary);border-color:var(--color-text-primary)}
+.btn-primary:hover{opacity:0.85;background:var(--color-text-primary)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.5rem}
+.stat{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.75rem 1rem}
+.stat-val{font-size:22px;font-weight:500;color:var(--color-text-primary)}
+.stat-lbl{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+.queue{display:flex;flex-direction:column;gap:8px;max-height:380px;overflow-y:auto}
+.q-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);font-size:13px}
+.q-thumb{width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0;background:var(--color-background-secondary)}
+.q-name{flex:1;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.badge{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:500;white-space:nowrap}
+.badge-wait{background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.badge-proc{background:#E6F1FB;color:#185FA5}
+.badge-diia{background:#EEEDFE;color:#3C3489}
+.badge-id{background:#EAF3DE;color:#3B6D11}
+.badge-foreign{background:#E1F5EE;color:#0F6E56}
+.badge-skip{background:#FAEEDA;color:#854F0B}
+.badge-err{background:#FCEBEB;color:#A32D2D}
+.progress-bar{height:3px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;margin-bottom:1.5rem}
+.progress-fill{height:100%;background:var(--color-text-primary);border-radius:2px;transition:width 0.3s}
+.setup-toggle{font-size:13px;color:var(--color-text-secondary);cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-bottom:1rem;background:none;border:none;font-family:var(--font-sans);padding:0}
+.setup-toggle:hover{color:var(--color-text-primary)}
+.result-data{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+.result-data strong{color:var(--color-text-primary);font-weight:500}
+</style>
+
+<div class="app">
+
+<div class="section">
+  <button class="setup-toggle" onclick="toggleSetup()">
+    <i class="ti ti-settings" aria-hidden="true"></i>
+    <span>Налаштування</span>
+    <i class="ti ti-chevron-down" id="setup-chevron" aria-hidden="true"></i>
+  </button>
+  <div id="setup-panel" class="card" style="display:none">
+    <div style="margin-bottom:12px">
+      <span class="label">URL Apps Script</span>
+      <input id="script-url" type="text" style="width:100%;font-size:12px;font-family:var(--font-mono)" value="https://script.google.com/macros/s/AKfycbwX1FdTeS0P1OphqQmCq2Eh8QWsfnbzUG7EMUrHh-1rkJJExCm7jocxOVx_HNcpU8Y/exec">
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary" onclick="saveSettings()"><i class="ti ti-check" aria-hidden="true"></i>Зберегти</button>
+      <button class="btn" onclick="testConnection()"><i class="ti ti-plug" aria-hidden="true"></i>Тест</button>
+      <span id="conn-status" style="font-size:12px"></span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <i class="ti ti-photo-up" aria-hidden="true"></i>
+    <p>Перетягни фото або натисни для вибору</p>
+    <small>JPG, PNG, HEIC — будь-яка кількість</small>
+  </div>
+  <input type="file" id="file-input" accept="image/*" multiple style="display:none" onchange="addFiles(this.files)">
+</div>
+
+<div id="stats-section" style="display:none">
+  <div class="stats">
+    <div class="stat"><div class="stat-val" id="s-total">0</div><div class="stat-lbl">Всього</div></div>
+    <div class="stat"><div class="stat-val" id="s-found">0</div><div class="stat-lbl">Документів</div></div>
+    <div class="stat"><div class="stat-val" id="s-done">0</div><div class="stat-lbl">Готово</div></div>
+    <div class="stat"><div class="stat-val" id="s-skip">0</div><div class="stat-lbl">Пропущено</div></div>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+</div>
+
+<div class="section" id="queue-section" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span style="font-size:14px;font-weight:500;color:var(--color-text-primary)" id="queue-title">Черга</span>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="clearAll()" id="btn-clear"><i class="ti ti-trash" aria-hidden="true"></i>Очистити</button>
+      <button class="btn btn-primary" onclick="startProcessing()" id="btn-start"><i class="ti ti-player-play" aria-hidden="true"></i>Запустити</button>
+    </div>
+  </div>
+  <div class="queue" id="queue-list"></div>
+</div>
+
+</div>
+
+<script>
+let scriptUrl='https://script.google.com/macros/s/AKfycbwX1FdTeS0P1OphqQmCq2Eh8QWsfnbzUG7EMUrHh-1rkJJExCm7jocxOVx_HNcpU8Y/exec';
+let queue=[];
+let processing=false;
+
+function toggleSetup(){
+  const p=document.getElementById('setup-panel');
+  const c=document.getElementById('setup-chevron');
+  const open=p.style.display!=='none';
+  p.style.display=open?'none':'block';
+  c.className=open?'ti ti-chevron-down':'ti ti-chevron-up';
+}
+
+function saveSettings(){
+  scriptUrl=document.getElementById('script-url').value.trim();
+  setStatus('Збережено','#3B6D11');
+  setTimeout(()=>setStatus('',''),2000);
+}
+
+function setStatus(msg,color){
+  const el=document.getElementById('conn-status');
+  el.textContent=msg;
+  el.style.color=color||'var(--color-text-secondary)';
+}
+
+async function testConnection(){
+  setStatus('Перевіряю...','#888');
+  try{
+    const r=await fetch(scriptUrl,{redirect:'follow'});
+    const text=await r.text();
+    const d=JSON.parse(text);
+    if(d.ok){setStatus('✓ Підключено','#3B6D11');}
+    else throw new Error(d.error||'Помилка');
+  }catch(e){
+    setStatus('✗ '+e.message,'#A32D2D');
+  }
+}
+
+async function sendToSheet(data){
+  const r=await fetch(scriptUrl,{
+    method:'POST',
+    redirect:'follow',
+    body:JSON.stringify(data)
+  });
+  const text=await r.text();
+  const d=JSON.parse(text);
+  if(!d.ok)throw new Error(d.error||'Помилка запису');
+}
+
+const dz=document.getElementById('drop-zone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');addFiles(e.dataTransfer.files)});
+
+function addFiles(files){
+  for(const f of files){
+    if(!f.type.startsWith('image/'))continue;
+    queue.push({id:Math.random().toString(36).slice(2),file:f,status:'wait',result:null});
+  }
+  renderQueue();updateStats();
+  document.getElementById('stats-section').style.display=queue.length?'block':'none';
+  document.getElementById('queue-section').style.display=queue.length?'block':'none';
+}
+
+const badgeMap={wait:'badge-wait',processing:'badge-proc',diia:'badge-diia',id:'badge-id',foreign:'badge-foreign',skip:'badge-skip',error:'badge-err'};
+const labelMap={wait:'Очікування',processing:'Обробка…',diia:'Дія (паспорт)',id:'Пластиковий ID',foreign:'Закордонний',skip:'Не документ',error:'Помилка'};
+
+function renderQueue(){
+  const list=document.getElementById('queue-list');
+  if(!queue.length){list.innerHTML='';return;}
+  list.innerHTML='';
+  for(const item of queue){
+    const div=document.createElement('div');
+    div.className='q-item';div.id='item-'+item.id;
+    const url=URL.createObjectURL(item.file);
+    let info='';
+    if(item.result&&['diia','id','foreign'].includes(item.status)){
+      info=`<div class="result-data"><strong>${item.result.name||'—'}</strong> · ${item.result.dob||'—'} · ${item.result.docNum||'—'}</div>`;
+    }
+    if(item.result&&item.status==='error'){
+      info=`<div class="result-data" style="color:#A32D2D">${item.result.msg}</div>`;
+    }
+    div.innerHTML=`<img class="q-thumb" src="${url}"><div style="flex:1;min-width:0"><div class="q-name">${item.file.name}</div>${info}</div><span class="badge ${badgeMap[item.status]||'badge-wait'}">${labelMap[item.status]||item.status}</span>`;
+    list.appendChild(div);
+  }
+}
+
+function updateItem(item){
+  const el=document.getElementById('item-'+item.id);
+  if(!el)return;
+  const badge=el.querySelector('.badge');
+  if(badge){badge.className='badge '+(badgeMap[item.status]||'badge-wait');badge.textContent=labelMap[item.status]||item.status;}
+  const nameEl=el.querySelector('.q-name');
+  if(nameEl){
+    const old=nameEl.parentNode.querySelector('.result-data');
+    if(old)old.remove();
+    let info='';
+    if(item.result&&['diia','id','foreign'].includes(item.status)){
+      info=`<div class="result-data"><strong>${item.result.name||'—'}</strong> · ${item.result.dob||'—'} · ${item.result.docNum||'—'}</div>`;
+    }
+    if(item.result&&item.status==='error'){
+      info=`<div class="result-data" style="color:#A32D2D">${item.result.msg}</div>`;
+    }
+    if(info)nameEl.insertAdjacentHTML('afterend',info);
+  }
+  updateStats();
+}
+
+function updateStats(){
+  const total=queue.length;
+  const found=queue.filter(i=>['diia','id','foreign'].includes(i.status)).length;
+  const done=queue.filter(i=>['diia','id','foreign','skip','error'].includes(i.status)).length;
+  const skip=queue.filter(i=>i.status==='skip').length;
+  document.getElementById('s-total').textContent=total;
+  document.getElementById('s-found').textContent=found;
+  document.getElementById('s-done').textContent=done;
+  document.getElementById('s-skip').textContent=skip;
+  document.getElementById('progress-fill').style.width=(total?Math.round(done/total*100):0)+'%';
+  document.getElementById('queue-title').textContent=`Черга (${done}/${total})`;
+}
+
+function clearAll(){
+  if(processing)return;
+  queue=[];renderQueue();updateStats();
+  document.getElementById('stats-section').style.display='none';
+  document.getElementById('queue-section').style.display='none';
+}
+
+async function toBase64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(',')[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function analyzeImage(file){
+  const b64=await toBase64(file);
+  const mt=file.type||'image/jpeg';
+  const resp=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      model:'claude-sonnet-4-6',
+      max_tokens:1000,
+      messages:[{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:mt,data:b64}},
+        {type:'text',text:`Ти — система розпізнавання українських документів. Визнач тип документа на фото.
+
+ТИПИ ДОКУМЕНТІВ:
+1. "diia" — Електронний паспорт в Дії: скріншот з телефону, додаток "Дія", напис "Паспорт громадянина України", ім'я великими літерами внизу, поле "Номер:"
+2. "id" — Пластиковий ID-картка: фізична картка, напис "ПАСПОРТ ГРОМАДЯНИНА УКРАЇНИ / PASSPORT OF THE CITIZEN OF UKRAINE", поля Прізвище/Ім'я/По батькові окремо, поле "Документ №"
+3. "foreign" — Закордонний паспорт (або в Дії): напис "Закордонний паспорт", або фізична книжечка з написом "UKRAINE", поле "Запис №" або серія+номер типу AA123456
+4. "none" — не є жодним з цих документів
+
+Витягни дані:
+- ФІО: "Прізвище Ім'я По-батькові" українською
+- Дата народження: формат ДД.ММ.РРРР
+- Для "id" і "diia": тільки номер (9 цифр)
+- Для "foreign": серія+номер якщо є (AA123456) або тільки номер
+
+Відповідай ТІЛЬКИ JSON:
+{"type":"diia|id|foreign|none","name":"","dob":"","doc_num":""}
+
+Якщо поле нечітке — залиш "".`}
+      ]}]
+    })
+  });
+  const data=await resp.json();
+  const text=data.content?.map(c=>c.text||'').join('').trim();
+  return JSON.parse(text.replace(/```json|```/g,'').trim());
+}
+
+async function startProcessing(){
+  if(processing)return;
+  processing=true;
+  document.getElementById('btn-start').disabled=true;
+  document.getElementById('btn-clear').disabled=true;
+  const docTypeLabel={diia:'Електронний паспорт в Дії',id:'Пластиковий ID',foreign:'Закордонний паспорт'};
+  for(const item of queue){
+    if(item.status!=='wait')continue;
+    item.status='processing';updateItem(item);
+    try{
+      const res=await analyzeImage(item.file);
+      if(res.type&&res.type!=='none'){
+        item.status=res.type;
+        item.result={docType:docTypeLabel[res.type]||res.type,name:res.name,dob:res.dob,docNum:res.doc_num,fileName:item.file.name};
+        try{await sendToSheet(item.result);}catch(e){console.warn('Sheets:',e);}
+      }else{
+        item.status='skip';item.result=null;
+      }
+    }catch(e){
+      item.status='error';item.result={msg:e.message.slice(0,60)};
+    }
+    updateItem(item);
+    await new Promise(r=>setTimeout(r,300));
+  }
+  processing=false;
+  document.getElementById('btn-start').disabled=false;
+  document.getElementById('btn-clear').disabled=false;
+}
+</script>
